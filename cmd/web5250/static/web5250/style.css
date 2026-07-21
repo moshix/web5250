@@ -197,8 +197,9 @@ body {
 #oia {
     display: flex;
     align-items: center;
+    gap: 10px;
     background: #000;
-    padding: 3px 4px;
+    padding: 3px 8px;
     font-family: inherit;
     font-size: 12px;
     color: #4a80c0;
@@ -206,28 +207,16 @@ body {
     border-right: 1px solid #2a4a6a;
 }
 
-#oia-left {
-    white-space: pre;
-}
-
-#oia-insert {
-    white-space: pre;
-    margin-left: 12px;
-    color: #4a80c0;
-    font-weight: bold;
-}
-
-#oia-status {
-    flex: 1;
-    text-align: left;
-    padding-left: 16px;
-    color: #fff;
-    font-size: 11px;
-}
-
-#oia-pos {
-    white-space: pre;
-}
+/* Fixed slots so indicators don't shift as they appear/disappear, mirroring
+   the tn5250 OIA layout: 5250 label · X-status · shift · MW · IM · FER · pos. */
+#oia span { white-space: pre; }
+#oia-5250   { color: #4a80c0; font-weight: bold; }          /* "5250" label */
+#oia-status { min-width: 9ch; color: #fff; }                /* X II / X CLOCK / X SYSTEM / X Disconnected */
+#oia-shift  { min-width: 1ch; color: #4a80c0; font-weight: bold; } /* keyboard shift: A / N / K */
+#oia-mw     { min-width: 2ch; color: #e0d561; font-weight: bold; } /* MW */
+#oia-insert { min-width: 2ch; color: #4a80c0; font-weight: bold; } /* IM (insert) */
+#oia-fer    { min-width: 3ch; color: #f0a000; font-weight: bold; } /* FER */
+#oia-pos    { margin-left: auto; color: #4a80c0; }          /* col/row, pushed right */
 
 #terminal .row {
     display: block;

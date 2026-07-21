@@ -90,6 +90,9 @@ type wsScreenMessage struct {
 	KeyboardRestore bool          `json:"kbdRestore,omitempty"`
 	MessageWait     bool          `json:"mw,omitempty"`        // host has a message waiting
 	ErrorText       string        `json:"errorText,omitempty"` // operator-error text (Write Error Code)
+	XSystem         bool          `json:"xsys,omitempty"`
+	XClock          bool          `json:"xclock,omitempty"`
+	Inhibit         bool          `json:"inhibit,omitempty"`
 	Cells           []wsCell      `json:"cells"`
 	Fields          []wsFieldInfo `json:"fields"`
 	// Enhanced (GUI) overlays — absent on ordinary screens.
@@ -163,6 +166,9 @@ type wsDeltaMessage struct {
 	KeyboardRestore bool          `json:"kbdRestore,omitempty"`
 	MessageWait     bool          `json:"mw,omitempty"`
 	ErrorText       string        `json:"errorText,omitempty"`
+	XSystem         bool          `json:"xsys,omitempty"`
+	XClock          bool          `json:"xclock,omitempty"`
+	Inhibit         bool          `json:"inhibit,omitempty"`
 	Delta           []wsDeltaCell `json:"delta"`
 	Fields          []wsFieldInfo `json:"fields"`
 	// Enhanced (GUI) overlays — absent on ordinary screens.
@@ -568,7 +574,7 @@ func (s *web5250Session) sendSnapshot(snap *tn5250.Snapshot) {
 				Type: "delta", Rows: snap.Rows, Cols: snap.Cols,
 				Cursor: cursor, CursorSet: snap.CursorSet, Alarm: snap.Alarm,
 				KeyboardRestore: kbdRestore, MessageWait: snap.MessageWait,
-				ErrorText: snap.ErrorText, Delta: delta, Fields: fields,
+				ErrorText: snap.ErrorText, XSystem: snap.XSystem, XClock: snap.XClock, Inhibit: snap.Inhibit, Delta: delta, Fields: fields,
 				Windows: windows, Selections: selections, Scrollbars: scrollbars,
 			})
 		}
@@ -578,7 +584,7 @@ func (s *web5250Session) sendSnapshot(snap *tn5250.Snapshot) {
 			Type: "screen", Rows: snap.Rows, Cols: snap.Cols,
 			Cursor: cursor, CursorSet: snap.CursorSet, Alarm: snap.Alarm,
 			KeyboardRestore: kbdRestore, MessageWait: snap.MessageWait,
-			ErrorText: snap.ErrorText, Cells: cells, Fields: fields,
+			ErrorText: snap.ErrorText, XSystem: snap.XSystem, XClock: snap.XClock, Inhibit: snap.Inhibit, Cells: cells, Fields: fields,
 			Windows: windows, Selections: selections, Scrollbars: scrollbars,
 		})
 	}

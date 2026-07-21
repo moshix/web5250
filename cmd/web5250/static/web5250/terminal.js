@@ -23,6 +23,14 @@ let pendingRender = false; // true if a rAF is scheduled for screen render
 let kbdLocked = false;    // true while waiting for host response (keyboard lock)
 let ferActive = false;    // field-exit-required inhibit: set when a FER field fills; blocks data keys until Field Exit / Field± / arrow / Reset (mirrors display.c do_key FER handling)
 let kbdInhibit = false;   // operator-error input inhibit ("X II"): persists until Reset, matching tn5250 (an operator error locks data entry until Error-Reset)
+let operatorErrMsg = "";  // the specific local operator-error text shown in the OIA while kbdInhibit is set (e.g. "X Protected")
+// Host-driven OIA indicator bits, updated from each screen/delta frame.
+let hostMW = false;       // message waiting (MW)
+let hostXSystem = false;  // host X SYSTEM
+let hostXClock = false;   // host X CLOCK
+let hostInhibit = false;  // host input inhibit -> X II (e.g. Write Error Code)
+let shiftHeld = false;    // a Shift key is currently held
+let capsLock = false;     // Caps/Shift lock is on
 let lastHostCursor = -1;  // last cursor address the host set — used to suppress redundant cursor moves
 let autoReconnect = false; // auto-reconnect on disconnect
 let reconnectTimer = null; // pending reconnect timeout
@@ -461,58 +469,104 @@ function updateStatusBar() {
         `Row: ${r}  Col: ${c}`;
     document.getElementById("status-mode").textContent =
         insertMode ? "INS" : "OVR";
-    // OIA row/col counter (3-digit zero-padded like x3270)
-    const oiaPos = document.getElementById("oia-pos");
-    if (oiaPos) {
-        // tn5250 shows column/row (cursesterm.c: "%03d/%03d" of cursor_x+1, cursor_y+1).
-        oiaPos.textContent = String(c + 1).padStart(3, "0") + "/" + String(r + 1).padStart(3, "0");
-    }
-    // OIA insert-mode indicator
-    const oiaIns = document.getElementById("oia-insert");
-    if (oiaIns) {
-        oiaIns.textContent = insertMode ? "INS" : "";
+    updateOIA();
+}
+
+// oiaShift returns the keyboard-shift indicator (5250 KS) for the field at the
+// cursor: "A" alphabetic shift, "N" numeric, "K" katakana; blank when the cursor
+// is not in an input field. Derived from SnapField.ftype (already on fields[]).
+function oiaShift() {
+    if (!connected) return "";
+    // The KS "A" indicator lights ONLY when uppercase input is active: a Shift
+    // key is held, Caps/Shift-lock is on, or the field at the cursor is monocase
+    // (forced to uppercase). It does not light just because a field is alphabetic.
+    if (shiftHeld || capsLock) return "A";
+    const f = getFieldAtAddr(cursorAddr);
+    if (f && !f.prot && f.mono) return "A";
+    return "";
+}
+
+// trackShift updates the Shift-held / Caps-lock state from a key event and
+// refreshes the OIA only when it changes (drives the KS "A" indicator).
+function trackShift(e) {
+    const sh = !!e.shiftKey;
+    const cl = e.getModifierState ? e.getModifierState("CapsLock") : false;
+    if (sh !== shiftHeld || cl !== capsLock) {
+        shiftHeld = sh;
+        capsLock = cl;
+        updateOIA();
     }
 }
 
-function oiaWait(waiting) {
-    const el = document.getElementById("oia-status");
-    if (!el) return;
-    if (waiting) {
-        el.textContent = "X Wait";
-        el.style.color = "#fff";
-    } else {
-        el.textContent = "";
+// clockGlyph returns an inline SVG of a clock face — a circle with 12 hour tick
+// marks, no hands and no numbers — used for the "X CLOCK" OIA indicator, and
+// (with crossed=true) a diagonal slash through the circle to mark "no connection".
+// Sized at 0.85em (smaller than the "X" beside it), inheriting the OIA color.
+function clockGlyph(crossed) {
+    let ticks = "";
+    for (let k = 0; k < 12; k++) {
+        const a = k * Math.PI / 6;                         // 30° per hour mark
+        const inner = (k % 3 === 0) ? 5.5 : 8;             // longer marks at 12, 3, 6, 9
+        const ox = 12 + 10 * Math.sin(a), oy = 12 - 10 * Math.cos(a);       // outer (rim)
+        const ix = 12 + inner * Math.sin(a), iy = 12 - inner * Math.cos(a); // inner
+        ticks += `<line x1="${ox.toFixed(2)}" y1="${oy.toFixed(2)}" x2="${ix.toFixed(2)}" y2="${iy.toFixed(2)}"/>`;
     }
+    // Slash runs from just outside the circle's top-left edge to just outside
+    // its bottom-right edge (circle diagonal edge is ~4.6..19.4), so it clearly
+    // protrudes past the frame on both ends.
+    const slash = crossed ? `<line x1="2.5" y1="2.5" x2="21.5" y2="21.5"/>` : "";
+    return `<svg viewBox="0 0 24 24" width="0.85em" height="0.85em" style="vertical-align:-0.12em" `
+         + `fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="10.5"/>${ticks}${slash}</svg>`;
 }
 
-// oiaHostState reflects the host-driven OIA indicators from a screen/delta
-// frame: "X SYSTEM" when the host is inhibiting input (keyboard locked, WCC did
-// not restore the keyboard), and "MW" when the host has a message waiting. The
-// operator-error text itself is written by the host to the message line (last
-// row) and renders in the grid, so it is not duplicated here.
-function oiaHostState(kbdRestore, messageWait) {
-    const left = document.getElementById("oia-left");
-    if (left) left.textContent = messageWait ? "MW" : "";
-    const el = document.getElementById("oia-status");
-    if (!el) return;
-    if (!kbdRestore) {
-        el.textContent = "X SYSTEM";
-        el.style.color = "#fff";
-    } else {
-        el.textContent = "";
+// updateOIA is the SINGLE source of truth for the Operator Information Area (the
+// row below the display), mirroring tn5250 (cursesterm.c
+// curses_terminal_update_indicators): the "5250" label, one mutually-exclusive
+// input-inhibit indicator (X II > X CLOCK > X SYSTEM, plus X Disconnected), the
+// keyboard shift, the MW / IM / FER flags, and the column/row cursor position.
+function updateOIA() {
+    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+
+    set("oia-5250", connected ? "5250" : "");
+
+    // Input-inhibit indicator (single slot). Priority follows tn5250's col-9
+    // (II > CLOCK > SYSTEM), extended with our local disconnect/operator-error.
+    const status = document.getElementById("oia-status");
+    if (status) {
+        let color = "#fff";
+        if (!connected) {
+            // No connection: X + a crossed clock face (circle with a slash).
+            status.innerHTML = "X " + clockGlyph(true);
+        } else if (kbdInhibit) {
+            status.textContent = operatorErrMsg || "X II"; // local operator error (specific message)
+            color = "#f44747";
+        } else if (hostInhibit) {
+            status.textContent = "X II";                   // host input inhibit (e.g. Write Error Code)
+        } else if (hostXClock) {
+            // "X CLOCK": an X followed by a small clock-face symbol (circle with
+            // 12 hour ticks, no hands/numbers), sized not to exceed the X.
+            status.innerHTML = "X " + clockGlyph();
+        } else if (kbdLocked || hostXSystem) {
+            status.textContent = "X SYSTEM";
+        } else {
+            status.textContent = "";
+        }
+        status.style.color = color;
     }
+
+    set("oia-shift", oiaShift());
+    set("oia-mw", hostMW ? "MW" : "");
+    set("oia-insert", insertMode ? "IM" : "");
+    set("oia-fer", ferActive ? "FER" : "");
+
+    const r = Math.floor(cursorAddr / cols), c = cursorAddr % cols;
+    set("oia-pos", String(c + 1).padStart(3, "0") + "/" + String(r + 1).padStart(3, "0"));
 }
 
-function oiaDisconnected(show) {
-    const el = document.getElementById("oia-status");
-    if (!el) return;
-    if (show) {
-        el.textContent = "X Disconnected";
-        el.style.color = "#fff";
-    } else {
-        el.textContent = "";
-    }
-}
+// Thin compatibility shims — the flags they used to reflect are now read by
+// updateOIA(); callers just need a re-render.
+function oiaWait()         { updateOIA(); }
+function oiaDisconnected() { updateOIA(); }
 
 // ── Field navigation ────────────────────────────────────────────────
 
@@ -912,49 +966,31 @@ function deleteChar() {
     deleteCharShiftLeft();
 }
 
-// oiaOperatorError briefly shows an error in the OIA status area
+// oiaOperatorError records a local operator error: it inhibits input ("X II"
+// family) and PERSISTS until Reset/Error-Reset, matching tn5250 (display.c). The
+// specific message (e.g. "X Protected") is shown in the OIA X-status slot.
 function oiaOperatorError(msg) {
-    const el = document.getElementById("oia-status");
-    if (!el) return;
-    el.textContent = msg;
-    el.style.color = "#f44747";
-    // A 5250 operator error inhibits input ("X II") and PERSISTS until the
-    // operator presses Reset / Error-Reset — matching tn5250 (display.c). No
-    // auto-clear timer.
+    operatorErrMsg = msg;
     kbdInhibit = true;
+    updateOIA();
 }
 
 // ── Field-Exit-Required (FER) inhibit ───────────────────────────────
 // When a FER field fills, tn5250 (display.c interactive_addch) sets the FER
 // indicator and holds the cursor at the field end. do_key then rejects all
 // data keys until Field Exit / Field± / an arrow / Reset clears the state.
-// We model that with the ferActive flag plus a persistent OIA "X FER" marker.
-
-// oiaFER shows/hides the persistent FER indicator in the OIA status area.
-// Unlike oiaOperatorError it does not auto-clear on a timer — the indicator
-// stays until the operator clears the FER state.
-function oiaFER(show) {
-    const el = document.getElementById("oia-status");
-    if (!el) return;
-    if (show) {
-        el.textContent = "X FER";
-        el.style.color = "#f4c542";
-    } else if (el.textContent === "X FER") {
-        el.textContent = "";
-        el.style.color = "#fff";
-    }
-}
+// We model that with the ferActive flag, shown in its own OIA "FER" slot.
 
 function setFER() {
     ferActive = true;
-    oiaFER(true);
+    updateOIA();
 }
 
 // clearFER releases the FER inhibit (Field Exit/Field±/arrow/Tab/Reset/AID).
 function clearFER() {
     if (!ferActive) return;
     ferActive = false;
-    oiaFER(false);
+    updateOIA();
 }
 
 // deleteCharShiftLeft shifts all characters from cursor+1 to end of field
@@ -1336,7 +1372,12 @@ function getKeyId(e) {
     return parts.join("+");
 }
 
+// Track Shift release / Caps-lock changes so the OIA "A" indicator turns off.
+termEl.addEventListener("keyup", trackShift);
+
 termEl.addEventListener("keydown", function(e) {
+    trackShift(e); // keep the OIA keyboard-shift ("A") indicator current
+
     // Let native copy/paste/cut (Cmd+C/V/X or Ctrl+C/V/X) pass through
     if ((e.metaKey || e.ctrlKey) && ["c","v","x","a"].includes(e.key.toLowerCase())) return;
 
@@ -1386,8 +1427,8 @@ termEl.addEventListener("keydown", function(e) {
             kbdLocked = false;
             insertMode = false;
             kbdInhibit = false;
+            operatorErrMsg = "";
             clearFER();
-            oiaWait(false);
             updateStatusBar();
             renderScreen();
             break;
@@ -1830,14 +1871,19 @@ function doConnect() {
 
             // Host-driven keyboard state + OIA. kbdRestore set => keyboard
             // unlocked (ready); clear => host is inhibiting input ("X SYSTEM").
-            // Distinct from the local "X Wait" shown between an AID and its reply.
+            // The post-AID wait is the same locked state, shown as X SYSTEM too.
             kbdLocked = !msg.kbdRestore;
             ferActive = false; // a fresh host frame carries new fields — reset any FER inhibit
             // When the host restores the keyboard it also ends any operator-error
             // inhibit ("X II") — mirror tn5250 so a stale kbdInhibit can't silently
             // keep swallowing keystrokes after the host says input is allowed again.
-            if (msg.kbdRestore) kbdInhibit = false;
-            oiaHostState(msg.kbdRestore, msg.mw);
+            if (msg.kbdRestore) { kbdInhibit = false; operatorErrMsg = ""; }
+            // Capture the host-driven OIA indicator bits; updateOIA renders them.
+            hostMW = !!msg.mw;
+            hostXSystem = !!msg.xsys;
+            hostXClock = !!msg.xclock;
+            hostInhibit = !!msg.inhibit;
+            updateOIA();
 
             if (false && msg.alarm) { // bell disabled — set to msg.alarm to re-enable
                 try {
@@ -1947,6 +1993,8 @@ function setDisconnected() {
     kbdLocked = false;
     ferActive = false;
     kbdInhibit = false;  // clear any persistent operator-error inhibit ("X II") so a reconnect never inherits a stale keyboard lock
+    operatorErrMsg = "";
+    hostMW = false; hostXSystem = false; hostXClock = false; hostInhibit = false;
     lastHostCursor = -1;
     insertMode = false;
     cursorAddr = 0;
