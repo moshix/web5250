@@ -184,6 +184,8 @@ type wsFieldInfo struct {
 	Mandatory bool `json:"mand,omitempty"`
 	DupEnable bool `json:"dup,omitempty"`
 	Adjust    int  `json:"adj,omitempty"` // 0/5/6/7 mand-fill/right-adjust
+	ID        int  `json:"id,omitempty"`
+	NextProg  int  `json:"nextprog,omitempty"`
 }
 
 type wsStatusMessage struct {
@@ -527,6 +529,8 @@ func (s *web5250Session) sendSnapshot(snap *tn5250.Snapshot) {
 			Mandatory: f.Mandatory,
 			DupEnable: f.DupEnable,
 			Adjust:    f.Adjust,
+			ID:        f.ID,
+			NextProg:  f.NextProg,
 		}
 	}
 

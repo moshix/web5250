@@ -540,6 +540,17 @@ function isProtectedAddr(addr) {
 function nextUnprotectedField() {
     const size = rows * cols;
     const oldCursor = cursorAddr;
+    // Honor a host-specified cursor progression (FCW 0x88) on Tab, if the field
+    // the cursor is currently in defines one.
+    const cur = getFieldAtAddr(cursorAddr);
+    if (cur && cur.nextprog) {
+        const prog = nextFieldAfter(cur, cursorAddr);
+        if (prog >= 0) {
+            cursorAddr = prog;
+            moveCursorDOM(oldCursor, cursorAddr);
+            return;
+        }
+    }
     for (let i = 1; i < size; i++) {
         const addr = (cursorAddr + i) % size;
         for (const f of fields) {
@@ -819,7 +830,7 @@ function typeChar(ch) {
         } else {
             // Auto-skip to the first data cell of the next non-bypass field,
             // matching tn5250's interactive_addch (set_cursor_next_field).
-            const nf = nextFieldStartFrom(cursorAddr);
+            const nf = nextFieldAfter(f, cursorAddr);
             if (nf >= 0) cursorAddr = nf;
         }
     }
@@ -840,6 +851,19 @@ function nextFieldStartFrom(fromAddr) {
         }
     }
     return -1;
+}
+
+// nextFieldAfter returns the addr the cursor advances to after leaving field f:
+// the host-specified cursor-progression field (FCW 0x88; f.nextprog gives the
+// id of the next field) if set and present, otherwise the next physical
+// non-bypass field from fromAddr. Mirrors tn5250 display.c, which honors the
+// progression id on Tab and on field-fill.
+function nextFieldAfter(f, fromAddr) {
+    if (f && f.nextprog) {
+        const target = fields.find(ff => ff.id === f.nextprog && !ff.prot);
+        if (target) return target.addr % (rows * cols);
+    }
+    return nextFieldStartFrom(fromAddr);
 }
 
 // prevFieldLastCell returns the last data cell of the nearest non-bypass field
@@ -1082,7 +1106,7 @@ function fieldExit(sign) {
         return;
     }
     const oldCursor = cursorAddr;
-    const nf = nextFieldStartFrom(fEnd);
+    const nf = nextFieldAfter(f, fEnd);
     if (nf >= 0) cursorAddr = nf;
     moveCursorDOM(oldCursor, cursorAddr);
 }
@@ -1143,7 +1167,7 @@ function dupField() {
         return;
     }
     const oldCursor = cursorAddr;
-    const nf = nextFieldStartFrom(fEnd);
+    const nf = nextFieldAfter(f, fEnd);
     if (nf >= 0) cursorAddr = nf;
     moveCursorDOM(oldCursor, cursorAddr);
 }
