@@ -10,3 +10,7 @@ That's it.
 
 copyright 2026 by moshix, all rights reserved
 
+## Screenshot
+
+<img src="screenshot.png" alt="web5250 terminal screenshot" width="640">
+
