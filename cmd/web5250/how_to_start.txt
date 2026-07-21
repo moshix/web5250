@@ -1,0 +1,25 @@
+web5250 — browser-based 5250 (AS/400 / IBM i) terminal
+======================================================
+
+Build:
+    go build -o web5250 ./cmd/web5250/
+    # or: ./build_web5250.bash   (cross-compiles to bin/)
+
+Run (plain telnet, port 23):
+    ./web5250 -listen :8050 -host as400.example.com -port 23
+
+Run over TLS to the host (port 992):
+    ./web5250 -listen :8050 -host as400.example.com -port 992 -host-tls
+
+Then open  http://localhost:8050/web5250  in a browser and press Connect.
+
+Flags:
+    -listen    HTTP(S) listen address (default :8050)
+    -host      default AS/400 host
+    -port      default TN5250 port (23 plain, 992 TLS)
+    -model     screen size: 24x80 (default) or 27x132
+    -host-tls  connect to the AS/400 over TLS (use with -port 992)
+    -lock      lock host/port so browser users cannot change the target
+    -tls-cert / -tls-key   serve the web UI itself over HTTPS
+
+Only the two standard 5250 screen sizes are supported: 24x80 and 27x132.

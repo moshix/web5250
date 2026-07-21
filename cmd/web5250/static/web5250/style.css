@@ -1,0 +1,669 @@
+/* web5250 terminal emulator styling */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    background: #1a1a1a;
+    color: #00c000;
+    font-family: 'IBM Plex Mono', 'Courier New', 'Consolas', monospace;
+    font-size: 14px;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── Toolbar ─────────────────────────────────────────────────────── */
+
+#toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #2a2a2a;
+    border-bottom: 1px solid #444;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+#toolbar label {
+    color: #aaa;
+    font-size: 12px;
+}
+
+#toolbar input, #toolbar select {
+    background: #333;
+    color: #eee;
+    border: 1px solid #555;
+    padding: 3px 6px;
+    font-size: 12px;
+    font-family: inherit;
+    border-radius: 3px;
+}
+
+#toolbar input:focus, #toolbar select:focus {
+    outline: none;
+    border-color: #4ec9b0;
+}
+
+#host-input { width: 180px; }
+#port-input { width: 60px; }
+#custom-rows, #custom-cols { width: 52px; -moz-appearance: textfield; }
+#custom-rows::-webkit-inner-spin-button,
+#custom-cols::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.toolbar-x { color: #888; font-size: 12px; margin: 0 2px; }
+
+#toolbar button {
+    background: #4ec9b0;
+    color: #1a1a1a;
+    border: none;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: bold;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+#toolbar button:hover {
+    background: #5fd9c0;
+}
+
+#toolbar button.disconnect {
+    background: #f44747;
+    color: #fff;
+}
+
+#toolbar button.disconnect:hover {
+    background: #ff5555;
+}
+
+#toolbar #btn-settings {
+    background: #3a6a9e;
+    color: #e0e8f0;
+    margin-left: auto;
+}
+
+#toolbar #btn-settings:hover {
+    background: #4a7ab0;
+}
+
+.toolbar-sep {
+    width: 1px;
+    height: 20px;
+    background: #444;
+}
+
+/* ── Terminal ────────────────────────────────────────────────────── */
+
+#terminal-container {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 8px;
+    overflow: auto;
+    background: #000;
+}
+
+#terminal-wrap {
+    display: flex;
+    flex-direction: column;
+    /* Positioning context for the GUI overlay layer (windows / selection fields
+       / scroll bars), which is absolutely positioned over #terminal. */
+    position: relative;
+}
+
+/* ── Enhanced (GUI) overlay layer ──────────────────────────────────────
+   A transparent layer over the cell grid. It never intercepts pointer events
+   (so text selection / clicks pass through to the grid) and owns no grid
+   <span>s, so the ordinary render is untouched. Each cell is absolutely
+   positioned in pixels computed from the measured grid geometry. */
+#terminal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 5;
+    white-space: pre;
+}
+#terminal-overlay .ov-cell {
+    position: absolute;
+    text-align: center;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+/* Window border — bright green box-drawing characters. */
+#terminal-overlay .ov-border {
+    color: #00e000;
+    background: #000;
+    font-weight: bold;
+}
+/* Selection-field choices. */
+#terminal-overlay .ov-choice {
+    color: #00e0e0;      /* turquoise, like a 5250 selection field */
+    background: #000;
+}
+#terminal-overlay .ov-choice-sel {
+    color: #000;
+    background: #00e0e0; /* selected choice: reverse video */
+    font-weight: bold;
+}
+#terminal-overlay .ov-choice-unavail {
+    color: #4a80c0;      /* dimmed / unavailable */
+    background: #000;
+}
+/* Scroll bar. */
+#terminal-overlay .ov-scroll-track {
+    color: #2a4a6a;
+    background: #000;
+}
+#terminal-overlay .ov-scroll-slider {
+    color: #00e000;
+    background: #000;
+}
+
+#terminal {
+    background: #000;
+    line-height: 1;
+    white-space: pre;
+    cursor: text;
+    padding: 4px 4px 10px 4px;
+    outline: none;
+    font-size: 14px;
+    border-top: 1px solid #2a4a6a;
+    border-left: 1px solid #2a4a6a;
+    border-right: 1px solid #2a4a6a;
+    border-bottom: 2px solid #4a80c0;
+}
+
+/* Focus-loss treatment: dim the terminal border and turn the bottom edge
+   amber so the user can see at a glance that the terminal does not have
+   keyboard focus (clicked outside, tab hidden, or window blurred). */
+#terminal-wrap.unfocused #terminal {
+    border-top-color:    #1a2a3a;
+    border-left-color:   #1a2a3a;
+    border-right-color:  #1a2a3a;
+    border-bottom-color: #ffb000;
+    opacity: 0.85;
+}
+#terminal-wrap.unfocused #oia {
+    border-left-color:  #1a2a3a;
+    border-right-color: #1a2a3a;
+}
+
+/* ── OIA (Operator Information Area) ───────────────────────────── */
+
+#oia {
+    display: flex;
+    align-items: center;
+    background: #000;
+    padding: 3px 4px;
+    font-family: inherit;
+    font-size: 12px;
+    color: #4a80c0;
+    border-left: 1px solid #2a4a6a;
+    border-right: 1px solid #2a4a6a;
+}
+
+#oia-left {
+    white-space: pre;
+}
+
+#oia-insert {
+    white-space: pre;
+    margin-left: 12px;
+    color: #4a80c0;
+    font-weight: bold;
+}
+
+#oia-status {
+    flex: 1;
+    text-align: left;
+    padding-left: 16px;
+    color: #fff;
+    font-size: 11px;
+}
+
+#oia-pos {
+    white-space: pre;
+}
+
+#terminal .row {
+    display: block;
+    height: 1.2em;
+    margin: 0;
+    padding: 0;
+}
+
+/* Cell styling — no gaps between cells */
+#terminal span {
+    display: inline-block;
+    width: 1ch;
+    height: 1.2em;
+    line-height: 1.2em;
+    text-align: center;
+    vertical-align: top;
+    margin: 0;
+    padding: 0;
+}
+
+
+/* Cursor — static fallback so the block is visible even if the JS theme path
+   never runs (empty/blocked localStorage, JS error, CSP). The runtime
+   themeStyleEl injected into <head> overrides these per active theme. */
+#terminal span.cursor {
+    background: #ffffff;
+    color: #000000;
+    animation: blink-cursor 1s step-end infinite;
+}
+#terminal span.cursor.h-reverse {
+    background: #000000;
+    color: #ffffff;
+}
+
+@keyframes blink-cursor {
+    0%, 100% { background: #ffffff; color: #000000; }
+    50%      { background: transparent; color: inherit; }
+}
+
+/* IBM 3279 authentic phosphor colors */
+.c-green     { color: #00c000; }
+.c-blue      { color: #7890f0; }
+.c-red       { color: #f07070; }
+.c-pink      { color: #ff00ff; }
+.c-turquoise { color: #00e0e0; }
+.c-yellow    { color: #e0e000; }
+.c-white     { color: #ffffff; }
+.c-default   { color: #00c000; }
+
+/* Background colors */
+.bg-green     { background-color: #00c000; }
+.bg-blue      { background-color: #7890f0; }
+.bg-red       { background-color: #f07070; }
+.bg-pink      { background-color: #ff00ff; }
+.bg-turquoise { background-color: #00e0e0; }
+.bg-yellow    { background-color: #e0e000; }
+.bg-white     { background-color: #ffffff; }
+.bg-default   { background-color: transparent; }
+
+/* Intensified */
+.c-intense   { font-weight: bold; filter: brightness(1.3); }
+
+/* Highlights */
+.h-underscore { text-decoration: underline; text-underline-offset: 2px; }
+.h-blink     { animation: blink-text 1s step-end infinite; }
+.h-intensify { font-weight: bold; filter: brightness(1.3); }
+
+/* Reverse video: each color class gets a reverse variant */
+.h-reverse.c-green     { background: #00c000; color: #000 !important; }
+.h-reverse.c-blue      { background: #7890f0; color: #000 !important; }
+.h-reverse.c-red       { background: #f07070; color: #000 !important; }
+.h-reverse.c-pink      { background: #ff00ff; color: #000 !important; }
+.h-reverse.c-turquoise { background: #00e0e0; color: #000 !important; }
+.h-reverse.c-yellow    { background: #e0e000; color: #000 !important; }
+.h-reverse.c-white     { background: #ffffff; color: #000 !important; }
+.h-reverse.c-default   { background: #00c000; color: #000 !important; }
+.h-reverse.c-intense   { background: #ffffff; color: #000 !important; }
+.h-reverse             { background: #00c000; color: #000 !important; }
+
+@keyframes blink-text {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+/* Input fields (unprotected) - subtle highlight, no underline */
+.field-input {
+    background: #111;
+}
+
+/* Hidden fields */
+.field-hidden span {
+    color: #000 !important;
+}
+
+/* ── Status bar ──────────────────────────────────────────────────── */
+
+#statusbar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 4px 12px;
+    background: #2a2a2a;
+    border-top: 1px solid #444;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+#statusbar .status-item {
+    color: #888;
+}
+
+#statusbar .status-connected {
+    color: #4ec9b0;
+}
+
+#statusbar .status-disconnected {
+    color: #f44747;
+}
+
+#statusbar .status-cursor {
+    color: #dcdcaa;
+}
+
+#statusbar .status-mode {
+    color: #4a9df8;
+}
+
+#statusbar .status-msg {
+    color: #aaa;
+    flex: 1;
+}
+
+#statusbar .status-version {
+    color: #666;
+    margin-left: auto;
+}
+
+#statusbar .info-btn {
+    color: #888;
+    cursor: pointer;
+    font-size: 16px;
+    margin-left: 8px;
+    user-select: none;
+}
+#statusbar .info-btn:hover {
+    color: #fff;
+}
+
+/* ── Info modal ──────────────────────────────────────────────────── */
+
+#info-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.info-modal {
+    background: #1e1e1e;
+    border: 1px solid #555;
+    border-radius: 6px;
+    padding: 24px 32px;
+    color: #ccc;
+    text-align: center;
+    font-family: inherit;
+}
+.info-modal p {
+    margin: 0 0 16px 0;
+}
+.info-close {
+    background: #333;
+    color: #ccc;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 6px 20px;
+    cursor: pointer;
+    font-size: 14px;
+}
+.info-close:hover {
+    background: #444;
+}
+
+/* ── Keyboard remap modal ────────────────────────────────────────── */
+
+#modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+}
+
+#modal-overlay.visible {
+    display: flex;
+}
+
+#keymap-modal {
+    background: #2a2a2a;
+    border: 1px solid #4ec9b0;
+    border-radius: 6px;
+    padding: 20px;
+    max-width: 900px;
+    width: 92%;
+    max-height: 85vh;
+    overflow-y: auto;
+    color: #ccc;
+}
+
+#keymap-modal .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+#keymap-modal h2 {
+    color: #4ec9b0;
+    font-size: 16px;
+    margin: 0;
+}
+
+#keymap-modal .modal-close {
+    background: none;
+    border: 1px solid #555;
+    color: #f44747;
+    font-size: 22px;
+    line-height: 1;
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+#keymap-modal .modal-close:hover {
+    background: #f44747;
+    color: #fff;
+    border-color: #f44747;
+}
+
+/* ── Theme picker ───────────────────────────────────────────────── */
+
+.settings-section h3 {
+    color: #4ec9b0;
+    font-size: 12px;
+    margin: 8px 0 6px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #444;
+}
+
+/* Two-column horizontal layout for wide monitors */
+.settings-columns {
+    display: flex;
+    gap: 24px;
+}
+
+.settings-col-left {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-col-right {
+    flex: 1;
+    min-width: 0;
+    max-height: 55vh;
+    overflow-y: auto;
+}
+
+.settings-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #ccc;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.settings-checkbox input[type="checkbox"] {
+    accent-color: #4ec9b0;
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+}
+
+.settings-row label {
+    color: #aaa;
+    font-size: 11px;
+    min-width: 60px;
+}
+
+.settings-row select {
+    background: #2a2a2a;
+    color: #ddd;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 11px;
+    font-family: inherit;
+}
+
+.settings-row input[type="number"] {
+    background: #2a2a2a;
+    color: #ddd;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 11px;
+    font-family: inherit;
+    -moz-appearance: textfield;
+}
+
+.settings-hint {
+    color: #666;
+    font-size: 10px;
+    font-style: italic;
+}
+
+#theme-list {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+}
+
+.theme-btn {
+    padding: 6px 12px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+    transition: border-color 0.15s;
+}
+
+.theme-btn:hover {
+    border-color: #aaa;
+}
+
+.theme-btn.active {
+    border-color: #4ec9b0;
+    box-shadow: 0 0 4px rgba(78, 201, 176, 0.4);
+}
+
+#keymap-modal .keymap-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid #333;
+}
+
+#keymap-modal .keymap-fn {
+    color: #dcdcaa;
+    font-size: 13px;
+}
+
+#keymap-modal .keymap-key {
+    background: #333;
+    border: 1px solid #555;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #eee;
+    min-width: 100px;
+    text-align: center;
+}
+
+#keymap-modal .keymap-key:hover {
+    border-color: #4ec9b0;
+}
+
+#keymap-modal .keymap-key.listening {
+    border-color: #f44747;
+    color: #f44747;
+}
+
+#keymap-modal .keymap-cancel {
+    background: transparent;
+    color: #888;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    margin-right: 4px;
+}
+
+#keymap-modal .keymap-cancel:hover {
+    color: #ccc;
+    border-color: #888;
+}
+
+#keymap-modal .modal-buttons {
+    margin-top: 16px;
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+#keymap-modal button {
+    background: #555;
+    color: #ccc;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+#keymap-modal button.primary {
+    background: #4ec9b0;
+    color: #1a1a1a;
+    font-weight: bold;
+}
+
+/* ── Modal overlay backdrop (shared by the info modal) ───────────── */
+
+.modal-bg {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+}

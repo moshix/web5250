@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web5250 Terminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&family=Fira+Code:wght@400;700&family=JetBrains+Mono:wght@400;700&family=Source+Code+Pro:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/web5250/style.css">
+    <link rel="icon" type="image/svg+xml" href="/static/web5250/favicon.svg">
+</head>
+<body>
+
+<!-- Toolbar -->
+<div id="toolbar">
+    <label>Host:</label>
+    <input type="text" id="host-input" value="localhost" placeholder="hostname or IP" list="host-history" autocomplete="off">
+    <datalist id="host-history"></datalist>
+    <label>Port:</label>
+    <input type="text" id="port-input" value="23" placeholder="port">
+    <label>Screen size:</label>
+    <select id="model-select">
+        <option value="3179-2" selected>24×80</option>
+        <option value="3477-FC">27×132</option>
+    </select>
+    <span id="custom-size-toolbar" style="display:none;">
+        <input type="number" id="custom-rows" min="24" max="200" value="62" placeholder="Rows" title="Rows (24–200)">
+        <span class="toolbar-x">×</span>
+        <input type="number" id="custom-cols" min="80" max="250" value="160" placeholder="Cols" title="Cols (80–250)">
+    </span>
+    <button id="btn-connect" onclick="doConnect()">Connect</button>
+    <div class="toolbar-sep"></div>
+    <button id="btn-settings" onclick="openSettings()">Settings</button>
+</div>
+
+<!-- Terminal display -->
+<div id="terminal-container">
+    <div id="terminal-wrap">
+        <div id="terminal" tabindex="0"></div>
+        <div id="oia">
+            <span id="oia-left"></span>
+            <span id="oia-insert"></span>
+            <span id="oia-status"></span>
+            <span id="oia-pos"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Status bar -->
+<div id="statusbar">
+    <span id="status-conn" class="status-disconnected">Disconnected</span>
+    <span id="status-cursor" class="status-cursor">Row: 0  Col: 0</span>
+    <span id="status-mode" class="status-mode">OVR</span>
+    <span id="status-msg" class="status-msg"></span>
+    <span id="status-version" class="status-version"></span>
+    <span id="info-btn" class="info-btn" title="Info">ⓘ</span>
+</div>
+
+<!-- Info modal -->
+<div id="info-overlay" class="modal-bg" style="display:none;">
+    <div class="info-modal">
+        <p>web5250 is copyright 2026 by moshix. All rights reserved.</p>
+        <button id="info-close-btn" class="info-close">OK</button>
+    </div>
+</div>
+
+<!-- Settings modal -->
+<div id="modal-overlay">
+    <div id="keymap-modal">
+        <div class="modal-header">
+            <h2>Settings</h2>
+            <button class="modal-close" onclick="closeSettings()">&times;</button>
+        </div>
+        <div class="settings-columns">
+            <!-- Left column: Display, Theme, Connection -->
+            <div class="settings-col-left">
+                <div class="settings-section">
+                    <h3>Display</h3>
+                    <div class="settings-row">
+                        <label>Font:</label>
+                        <select id="font-select" onchange="applyFont()">
+                            <option value="'IBM Plex Mono', monospace" selected>IBM Plex Mono</option>
+                            <option value="'Courier New', monospace">Courier New</option>
+                            <option value="'Consolas', monospace">Consolas</option>
+                            <option value="'Liberation Mono', monospace">Liberation Mono</option>
+                            <option value="'Fira Code', monospace">Fira Code</option>
+                            <option value="'Source Code Pro', monospace">Source Code Pro</option>
+                            <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+                            <option value="monospace">System Mono</option>
+                        </select>
+                        <label>Size:</label>
+                        <select id="fontsize-select" onchange="applyFont()">
+                            <option value="10">10px</option>
+                            <option value="12">12px</option>
+                            <option value="14" selected>14px</option>
+                            <option value="16">16px</option>
+                            <option value="18">18px</option>
+                            <option value="20">20px</option>
+                            <option value="24">24px</option>
+                        </select>
+                    </div>
+                    <div class="settings-row">
+                        <label>Codepage:</label>
+                        <select id="codepage-select">
+                            <option value="37" selected>37 (US/Canada)</option>
+                            <option value="500">500 (International)</option>
+                            <option value="273">273 (German)</option>
+                            <option value="277">277 (Danish/Norwegian)</option>
+                            <option value="278">278 (Swedish/Finnish)</option>
+                            <option value="280">280 (Italian)</option>
+                            <option value="284">284 (Spanish)</option>
+                            <option value="285">285 (UK)</option>
+                            <option value="297">297 (French)</option>
+                            <option value="870">870 (Latin-2)</option>
+                            <option value="871">871 (Icelandic)</option>
+                        </select>
+                        <span class="settings-hint">(next connect)</span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Connection</h3>
+                    <div class="settings-row">
+                        <label class="settings-checkbox">
+                            <input type="checkbox" id="auto-reconnect"> Auto-reconnect
+                        </label>
+                        <span class="settings-hint">Reconnect automatically when connection drops</span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3>Color Theme</h3>
+                    <div id="theme-list"></div>
+                </div>
+            </div>
+            <!-- Right column: Keyboard Mapping -->
+            <div class="settings-col-right">
+                <div class="settings-section">
+                    <h3>Keyboard Mapping</h3>
+                </div>
+                <div id="keymap-list"></div>
+            </div>
+        </div>
+        <div class="modal-buttons">
+            <button onclick="resetKeymap()">Reset Defaults</button>
+            <button class="primary" onclick="closeSettings()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/web5250/terminal.js"></script>
+</body>
+</html>
