@@ -1,3 +1,5 @@
+// Copyright 2026 by moshix. All rights reserved.
+
 package main
 
 import (
