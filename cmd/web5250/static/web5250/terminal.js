@@ -1833,6 +1833,10 @@ function doConnect() {
             // Distinct from the local "X Wait" shown between an AID and its reply.
             kbdLocked = !msg.kbdRestore;
             ferActive = false; // a fresh host frame carries new fields — reset any FER inhibit
+            // When the host restores the keyboard it also ends any operator-error
+            // inhibit ("X II") — mirror tn5250 so a stale kbdInhibit can't silently
+            // keep swallowing keystrokes after the host says input is allowed again.
+            if (msg.kbdRestore) kbdInhibit = false;
             oiaHostState(msg.kbdRestore, msg.mw);
 
             if (false && msg.alarm) { // bell disabled — set to msg.alarm to re-enable
@@ -1942,6 +1946,7 @@ function setDisconnected() {
     fieldMDT = {};
     kbdLocked = false;
     ferActive = false;
+    kbdInhibit = false;  // clear any persistent operator-error inhibit ("X II") so a reconnect never inherits a stale keyboard lock
     lastHostCursor = -1;
     insertMode = false;
     cursorAddr = 0;

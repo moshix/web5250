@@ -30,7 +30,7 @@ var staticFiles embed.FS
 
 // web5250Version is set at build time via -ldflags "-X main.web5250Version=..."
 // Falls back to "dev" for ad-hoc builds.
-var web5250Version = "1.3"
+var web5250Version = "1.4"
 
 // model definitions: the -model flag and the frontend dropdown share these
 // values. 5250 terminal types map to a screen geometry.
