@@ -10,6 +10,22 @@ Now connect your browser to localhost:9000, or whatever IP you have this running
 
 That's it. 
 
+## Command-line switches
+
+| Switch | Default | Description |
+|--------|---------|-------------|
+| `-listen` | `:8050` | Plain-HTTP listen address. `""` disables it. Becomes HTTPS if `-tls-cert`/`-tls-key` are given without `-tls-listen`. |
+| `-tls-listen` | *(off)* | HTTPS listen address (requires `-tls-cert` and `-tls-key`). When set, `-listen` stays plain HTTP, so HTTP and HTTPS run at the same time. |
+| `-tls-cert` | *(none)* | TLS certificate file for the HTTPS listener. |
+| `-tls-key` | *(none)* | TLS private key file (requires `-tls-cert`). |
+| `-host` | `localhost` | Default AS/400 (TN5250) host, pre-filled in the browser UI. |
+| `-port` | `23` | Default TN5250 port (23 plain, 992 for TLS). |
+| `-host-tls` | `false` | Connect to the AS/400 host over TLS (use with `-port 992`). |
+| `-model` | `24x80` | Screen size: `24x80`  or `27x132`. |
+| `-lock` | `false` | Lock the connection target to `-host`/`-port` — the browser fields are disabled and cannot be changed. |
+
+Run `web5250 -h` for a usage summary with examples.
+
 ## TLS (HTTPS)
 
 The web UI can be served over TLS. Point `-tls-cert` / `-tls-key` at your
