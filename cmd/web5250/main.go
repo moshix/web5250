@@ -15,11 +15,13 @@ package main
 import (
 	"crypto/tls"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"html"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -30,7 +32,7 @@ var staticFiles embed.FS
 
 // web5250Version is set at build time via -ldflags "-X main.web5250Version=..."
 // Falls back to "dev" for ad-hoc builds.
-var web5250Version = "1.5"
+var web5250Version = "1.6"
 
 // model definitions: the -model flag and the frontend dropdown share these
 // values. 5250 terminal types map to a screen geometry.
@@ -50,11 +52,14 @@ var models = map[string]modelGeom{
 func main() {
 	fmt.Printf("web5250 version %s - copyright by moshix - all rights reserved\n", web5250Version)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: web5250 [-listen :port] [-host hostname] [-port tn5250port] [-model 24x80|27x132] [-lock] [-host-tls] [-tls-cert file -tls-key file]\n")
-		fmt.Fprintf(os.Stderr, "Examples: web5250 -listen :8050 -host as400.example.com -port 23\n")
-		fmt.Fprintf(os.Stderr, "          web5250 -listen :443 -host as400 -port 992 -tls-server -tls-cert cert.pem -tls-key key.pem\n")
+		fmt.Fprintf(os.Stderr, "Usage: web5250 [-listen :port] [-tls-listen :port] [-host hostname] [-port tn5250port] [-model 24x80|27x132] [-lock] [-host-tls] [-tls-cert file -tls-key file]\n")
+		fmt.Fprintf(os.Stderr, "Examples:\n")
+		fmt.Fprintf(os.Stderr, "  plain HTTP:   web5250 -listen :8050 -host as400.example.com -port 23\n")
+		fmt.Fprintf(os.Stderr, "  TLS only:     web5250 -listen :443 -tls-cert cert.pem -tls-key key.pem\n")
+		fmt.Fprintf(os.Stderr, "  HTTP + HTTPS: web5250 -listen :8050 -tls-listen :8443 -tls-cert cert.pem -tls-key key.pem\n")
 	}
-	listen := flag.String("listen", ":8050", "HTTP/HTTPS listen address")
+	listen := flag.String("listen", ":8050", "Plain-HTTP listen address (\"\" disables; becomes HTTPS if certs are given without -tls-listen)")
+	tlsListen := flag.String("tls-listen", "", "HTTPS listen address (requires -tls-cert and -tls-key); when set, -listen stays plain HTTP")
 	defaultHost := flag.String("host", "localhost", "Default TN5250 host")
 	defaultPort := flag.String("port", "23", "Default TN5250 port (23 plain, 992 TLS)")
 	model := flag.String("model", "24x80", "Screen size: 24x80 or 27x132")
@@ -104,6 +109,27 @@ func main() {
 			log.Fatalf("web5250: invalid TLS certificate/key: %v", err)
 		}
 		log.Printf("web5250 HTTPS certificate loaded (%s)", *tlsCert)
+	}
+
+	plainAddr, tlsAddr, err := resolveListeners(*listen, *tlsListen, useTLS)
+	if err != nil {
+		log.Fatalf("web5250: %v", err)
+	}
+
+	// Bind both addresses up front so a bad or busy port fails fast with a clear
+	// message (and the later "listening" log lines are truthful). This also
+	// catches collisions the string check in resolveListeners can't see, like
+	// ":8050" vs "0.0.0.0:8050".
+	var plainLn, tlsLn net.Listener
+	if plainAddr != "" {
+		if plainLn, err = net.Listen("tcp", plainAddr); err != nil {
+			log.Fatalf("web5250: cannot listen on %s: %v", plainAddr, err)
+		}
+	}
+	if tlsAddr != "" {
+		if tlsLn, err = net.Listen("tcp", tlsAddr); err != nil {
+			log.Fatalf("web5250: cannot listen on %s: %v", tlsAddr, err)
+		}
 	}
 
 	// Serve embedded static files
@@ -165,25 +191,66 @@ func main() {
 	// Static assets (CSS, JS, favicon)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	proto := "http"
-	if useTLS {
-		proto = "https"
+	if plainLn != nil {
+		log.Printf("web5250 listening on %s (http)", plainAddr)
+		log.Printf("web5250 open %s in your browser", listenURL("http", plainAddr))
 	}
-	log.Printf("web5250 listening on %s (%s)", *listen, proto)
-	log.Printf("web5250 open %s://localhost%s in your browser", proto, *listen)
+	if tlsLn != nil {
+		log.Printf("web5250 listening on %s (https)", tlsAddr)
+		log.Printf("web5250 open %s in your browser", listenURL("https", tlsAddr))
+	}
 	log.Printf("web5250 screen size: %s", geom.label)
 	log.Printf("web5250 default connection: %s:%s (host TLS: %v)", *defaultHost, *defaultPort, *hostTLS)
 	if isLocked {
 		log.Printf("web5250 running locked to %s:%s", *defaultHost, *defaultPort)
 	}
 
-	if useTLS {
-		if err := http.ListenAndServeTLS(*listen, *tlsCert, *tlsKey, mux); err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		if err := http.ListenAndServe(*listen, mux); err != nil {
-			log.Fatal(err)
-		}
+	// Serve the already-bound listeners over the same mux; the first one to fail
+	// takes the process down, as before. The channel buffer of 2 guarantees
+	// neither goroutine can block on send.
+	errCh := make(chan error, 2)
+	if plainLn != nil {
+		go func() { errCh <- http.Serve(plainLn, mux) }()
 	}
+	if tlsLn != nil {
+		go func() { errCh <- http.ServeTLS(tlsLn, mux, *tlsCert, *tlsKey) }()
+	}
+	log.Fatal(<-errCh)
+}
+
+// resolveListeners maps the flag combination to the plain-HTTP and HTTPS listen
+// addresses. Backward compatible: certificates WITHOUT -tls-listen serve HTTPS
+// on the -listen address (the historical single-listener behavior); with
+// -tls-listen, HTTPS runs there and -listen (if non-empty) stays plain HTTP.
+func resolveListeners(listen, tlsListen string, useTLS bool) (plainAddr, tlsAddr string, err error) {
+	switch {
+	case tlsListen != "" && !useTLS:
+		return "", "", errors.New("-tls-listen requires -tls-cert and -tls-key")
+	case useTLS && tlsListen == "":
+		tlsAddr = listen // legacy TLS-only on -listen
+	case useTLS:
+		tlsAddr = tlsListen
+		plainAddr = listen
+	default:
+		plainAddr = listen
+	}
+	if plainAddr == "" && tlsAddr == "" {
+		if useTLS {
+			return "", "", errors.New("TLS certificates given but no listen address; set -listen or -tls-listen")
+		}
+		return "", "", errors.New("no listeners configured (empty -listen and no -tls-listen)")
+	}
+	if plainAddr != "" && plainAddr == tlsAddr {
+		return "", "", fmt.Errorf("-listen and -tls-listen cannot share the same address %q", plainAddr)
+	}
+	return plainAddr, tlsAddr, nil
+}
+
+// listenURL renders a browser URL for a listen address: a bare ":port" gains a
+// localhost host; explicit host:port forms are shown as-is.
+func listenURL(scheme, addr string) string {
+	if strings.HasPrefix(addr, ":") {
+		return scheme + "://localhost" + addr
+	}
+	return scheme + "://" + addr
 }

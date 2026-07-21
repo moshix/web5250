@@ -4,7 +4,7 @@
 # Rebuild all web5250 binaries and publish them as a GitHub Release.
 #
 # Usage:   ./release_web5250.bash [version]
-#          VERSION=1.5 ./release_web5250.bash
+#          VERSION=1.6 ./release_web5250.bash
 #
 # Requirements:
 #   - gh (GitHub CLI), authenticated:  https://cli.github.com  then  gh auth login
@@ -12,7 +12,7 @@
 #     override the target repo with  GH_REPO=owner/name  if you are not inside one)
 set -euo pipefail
 
-VERSION="${1:-${VERSION:-1.5}}"
+VERSION="${1:-${VERSION:-1.6}}"
 TAG="v${VERSION}"
 
 # ── preconditions ────────────────────────────────────────────────────────
