@@ -581,8 +581,17 @@ body {
 }
 
 #keymap-modal .keymap-fn {
+    display: flex;
+    flex-direction: column;
     color: #dcdcaa;
     font-size: 13px;
+    margin-right: 8px;
+}
+
+#keymap-modal .keymap-fn-desc {
+    color: #888;
+    font-size: 10px;
+    margin-top: 1px;
 }
 
 #keymap-modal .keymap-key {

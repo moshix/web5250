@@ -165,17 +165,43 @@ const ALL_FUNCTIONS = [
     "Enter", "NewLine",
     "PF1","PF2","PF3","PF4","PF5","PF6","PF7","PF8","PF9","PF10","PF11","PF12",
     "PF13","PF14","PF15","PF16","PF17","PF18","PF19","PF20","PF21","PF22","PF23","PF24",
-    "Help", "RollUp", "RollDown", "Print", "SysReq", "Attn",
+    "Help", "RollUp", "RollDown", "Print", "SysReq", "TestReq", "Attn",
     "Clear", "FieldExit", "FieldPlus", "FieldMinus", "Dup",
-    "Reset", "EraseEOF", "Home", "Insert"
+    "Reset", "EraseEOF", "Home", "FieldHome", "Insert"
 ];
+
+// Plain-language descriptions shown under each function name in the key-mapping
+// dialog, so 5250 terms are discoverable (e.g. that "RollUp" is Page Down for a
+// "More..." screen). Names without an entry (PF1..PF24) are self-explanatory.
+const FUNCTION_DESCRIPTIONS = {
+    "Enter":      "Enter / send the screen",
+    "NewLine":    "New Line — first field on the next line",
+    "Help":       "Help",
+    "RollUp":     "Page Down — show more (the “More...” prompt)",
+    "RollDown":   "Page Up — show the previous page",
+    "Print":      "Print the screen",
+    "SysReq":     "System Request",
+    "TestReq":    "Test Request",
+    "Attn":       "Attention",
+    "Clear":      "Clear the screen",
+    "FieldExit":  "Field Exit — leave field, blank to its end",
+    "FieldPlus":  "Field+ — exit a numeric field",
+    "FieldMinus": "Field− — sign a numeric field negative",
+    "Dup":        "Duplicate field",
+    "Reset":      "Error Reset — unlock the keyboard (clears X II)",
+    "EraseEOF":   "Erase to end of field",
+    "Home":       "Home — first input field on the screen",
+    "FieldHome":  "Field Home — start of the current field",
+    "Insert":     "Toggle Insert mode"
+};
 
 // Local actions (cursor/navigation/keyboard control, not sent to host as an AID).
 // FieldExit, Field+, Field-, and Dup are performed instantly in the browser
 // (fieldExit()/fieldPlus()/fieldMinus()/dupField()) so they never lock the
 // keyboard or round-trip to the server — matching tn5250's local kf_* handlers.
 const LOCAL_ACTIONS = new Set(["NewLine", "Reset", "EraseEOF", "Home", "Insert",
-                               "FieldExit", "FieldPlus", "FieldMinus", "Dup"]);
+                               "FieldExit", "FieldPlus", "FieldMinus", "Dup",
+                               "FieldHome"]);
 
 // AID functions (keys that send an AID + field data to the host).
 // The Go server maps each name to its 5250 AID byte:
@@ -679,6 +705,23 @@ function firstUnprotectedField() {
     }
 }
 
+// fieldHome moves the cursor to the first data cell of the field the cursor is
+// currently in (5250 Field Home / K_FIELDHOME), mirroring display.c
+// tn5250_display_kf_fieldhome: it homes to the current field's start, or raises
+// the protect operator error ("X Protected") when the cursor is not in an
+// enterable field. Cursor movement releases any pending FER inhibit.
+function fieldHome() {
+    const f = getFieldAtAddr(cursorAddr);
+    if (!f || f.prot) {
+        oiaOperatorError("X Protected");
+        return;
+    }
+    clearFER();
+    const oldCursor = cursorAddr;
+    cursorAddr = f.addr % (rows * cols);
+    moveCursorDOM(oldCursor, cursorAddr);
+}
+
 // ── Fast single-cell DOM updates ────────────────────────────────────
 // Used by input functions to avoid full renderScreen() on every keystroke.
 
@@ -991,6 +1034,32 @@ function clearFER() {
     if (!ferActive) return;
     ferActive = false;
     updateOIA();
+}
+
+// doReset performs the operator Error-Reset (K_RESET), mirroring tn5250
+// display.c do_key(K_RESET). web5250 splits the input-inhibit into two domains,
+// so Reset must clear BOTH:
+//   • LOCAL (browser-owned): the operator-error "X II" family (kbdInhibit),
+//     the FER inhibit, Insert mode, and the pending keyboard lock — cleared
+//     here for instant feedback.
+//   • HOST (engine-owned): the Write-Error-Code "X II" (hostInhibit), whose
+//     state and the message line it overwrote live in the Go engine. The
+//     browser cannot restore that on its own, so it sends a "reset" to the
+//     engine, which uninhibits, restores the saved message line, and replies
+//     with a fresh frame. hostInhibit is also cleared locally so the X II
+//     disappears immediately; the engine's frame confirms it (and, in the rare
+//     host-locked case where the engine denies Reset, hostInhibit is already
+//     false, so the local clear is a harmless no-op).
+function doReset() {
+    kbdLocked = false;
+    insertMode = false;
+    kbdInhibit = false;
+    operatorErrMsg = "";
+    hostInhibit = false;
+    clearFER();
+    if (ws && connected) ws.send(JSON.stringify({ type: "reset" }));
+    updateStatusBar();
+    renderScreen();
 }
 
 // deleteCharShiftLeft shifts all characters from cursor+1 to end of field
@@ -1368,7 +1437,15 @@ function getKeyId(e) {
     if (e.altKey) parts.push("Alt");
     if (e.metaKey) parts.push("Meta");
 
-    parts.push(e.key);
+    // Identify function keys by physical position (e.code), not the logical
+    // character (e.key). Some browsers/keyboards deliver the F-key row with a
+    // mis-reported e.key (e.g. a media-key layer reporting "e"), which would
+    // otherwise miss the keymap and get typed as a character. e.code for a
+    // function key is already "F1".."F24", matching the keymap names directly.
+    let keyName = e.key;
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(e.code)) keyName = e.code;
+
+    parts.push(keyName);
     return parts.join("+");
 }
 
@@ -1396,8 +1473,9 @@ termEl.addEventListener("keydown", function(e) {
         }
     }
 
-    // Prevent browser defaults for function keys, modifiers, etc.
-    if (e.key.startsWith("F") && e.key.length <= 3) e.preventDefault();
+    // Prevent browser defaults for function keys, modifiers, etc. Test the
+    // physical key (e.code) so a mis-reported e.key doesn't skip the guard.
+    if (/^F\d+$/.test(e.code) || (e.key.startsWith("F") && e.key.length <= 3)) e.preventDefault();
     if (e.key === "Tab" || e.key === "Escape" || e.key === "Enter" || e.key === "Home" || e.key === "Insert" || e.key === "End") e.preventDefault();
     if (e.key === "PageUp" || e.key === "PageDown") e.preventDefault();
     if (e.ctrlKey || e.altKey || e.metaKey) e.preventDefault();
@@ -1422,21 +1500,18 @@ termEl.addEventListener("keydown", function(e) {
             newLine();
             break;
         case "Reset":
-            // Reset / Error-Reset: clear the operator-error inhibit ("X II"),
-            // FER inhibit, insert mode, and any local keyboard lock (local only).
-            kbdLocked = false;
-            insertMode = false;
-            kbdInhibit = false;
-            operatorErrMsg = "";
-            clearFER();
-            updateStatusBar();
-            renderScreen();
+            // Reset / Error-Reset: clear the local operator-error inhibit and
+            // ask the engine to clear the host Write-Error-Code inhibit too.
+            doReset();
             break;
         case "EraseEOF":
             eraseEOF();
             break;
         case "Home":
             firstUnprotectedField();
+            break;
+        case "FieldHome":
+            fieldHome();
             break;
         case "Insert":
             insertMode = !insertMode;
@@ -1458,15 +1533,11 @@ termEl.addEventListener("keydown", function(e) {
         return;
     }
 
-    // Reset key (Ctrl+R or Alt+R): unlock keyboard and clear errors
+    // Reset key (Ctrl+R or Alt+R): same Error-Reset as Escape — clear the local
+    // operator-error inhibit and clear the host inhibit via the engine.
     if (keyId === "Ctrl+r" || keyId === "Alt+r") {
         e.preventDefault();
-        kbdLocked = false;
-        insertMode = false;   // Reset also exits Insert mode
-        clearFER();           // Reset also clears the FER inhibit
-        oiaWait(false);
-        updateStatusBar();
-        renderScreen();
+        doReset();
         return;
     }
 
@@ -1517,8 +1588,12 @@ termEl.addEventListener("keydown", function(e) {
         return;
     }
 
-    // Regular character input
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    // Regular character input. Guard against physical function/navigation keys
+    // whose e.key was mis-reported as a single character — those must never be
+    // typed (they belong to the AID/local-action dispatch above). Genuine
+    // character keys (KeyA-Z, Digit0-9, punctuation) still pass.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey &&
+        !/^(F\d+|Arrow|Page|Home|End|Insert|Delete|Tab|Enter|Escape|NumpadEnter)/.test(e.code)) {
         e.preventDefault();
         typeChar(e.key);
     }
@@ -2067,7 +2142,17 @@ function openSettings() {
 
         const label = document.createElement("span");
         label.className = "keymap-fn";
-        label.textContent = fn;
+        const nameEl = document.createElement("span");
+        nameEl.className = "keymap-fn-name";
+        nameEl.textContent = fn;
+        label.appendChild(nameEl);
+        const descText = FUNCTION_DESCRIPTIONS[fn];
+        if (descText) {
+            const descEl = document.createElement("span");
+            descEl.className = "keymap-fn-desc";
+            descEl.textContent = descText;
+            label.appendChild(descEl);
+        }
 
         const keyBtn = document.createElement("span");
         keyBtn.className = "keymap-key";

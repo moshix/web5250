@@ -57,7 +57,7 @@ var wsUpgrader = websocket.Upgrader{
 
 // Browser → server.
 type wsClientMessage struct {
-	Type       string        `json:"type"` // "connect","aid","disconnect","attn"
+	Type       string        `json:"type"` // "connect","aid","disconnect","attn","reset"
 	Host       string        `json:"host"`
 	Port       string        `json:"port"`
 	Model      string        `json:"model"`      // "3179-2","3477-FC","custom"
@@ -332,6 +332,8 @@ func (s *web5250Session) run() {
 			s.handleDisconnect()
 		case "attn":
 			s.handleAttn()
+		case "reset":
+			s.handleReset()
 		}
 	}
 }
@@ -441,6 +443,20 @@ func (s *web5250Session) handleAttn() {
 	s.mu.Unlock()
 	if client != nil {
 		client.SendAttn()
+	}
+}
+
+// handleReset performs the Error-Reset (K_RESET) on the engine so a host
+// Write-Error-Code inhibit ("X II") is cleared and the overwritten message line
+// restored — matching tn5250's display-layer Reset. Frontend-only operator
+// errors (e.g. "X Numeric only") are cleared in the browser; this covers the
+// host-driven half the browser cannot reach.
+func (s *web5250Session) handleReset() {
+	s.mu.Lock()
+	client := s.client
+	s.mu.Unlock()
+	if client != nil {
+		client.Reset()
 	}
 }
 
