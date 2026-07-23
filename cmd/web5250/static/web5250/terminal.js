@@ -32,6 +32,7 @@ let hostInhibit = false;  // host input inhibit -> X II (e.g. Write Error Code)
 let shiftHeld = false;    // a Shift key is currently held
 let capsLock = false;     // Caps/Shift lock is on
 let lastHostCursor = -1;  // last cursor address the host set — used to suppress redundant cursor moves
+let hostHomeRow = 0, hostHomeCol = 0;  // host Insert-Cursor (Home) target from the last screen/delta frame (0-based)
 let autoReconnect = false; // auto-reconnect on disconnect
 let reconnectTimer = null; // pending reconnect timeout
 
@@ -705,6 +706,23 @@ function firstUnprotectedField() {
     }
 }
 
+// homeCursor implements the 5250 Home key: it positions to the host Insert-Cursor
+// (IC) target the host sent with the last screen/delta frame (homeRow/homeCol),
+// not merely the first field. Falls back to the first unprotected field only when
+// the screen has no fields at all. Cursor movement releases any pending FER
+// inhibit. (The double-home record-backspace AID is out of scope.)
+function homeCursor() {
+    clearFER();
+    if (fields.length === 0) {
+        firstUnprotectedField();
+        return;
+    }
+    const old = cursorAddr;
+    const target = (hostHomeRow * cols + hostHomeCol) % (rows * cols);
+    cursorAddr = target;
+    moveCursorDOM(old, cursorAddr);
+}
+
 // fieldHome moves the cursor to the first data cell of the field the cursor is
 // currently in (5250 Field Home / K_FIELDHOME), mirroring display.c
 // tn5250_display_kf_fieldhome: it homes to the current field's start, or raises
@@ -875,6 +893,15 @@ function typeChar(ch) {
         if (ch === "+") { fieldPlus(); return; }
     }
 
+    // Signed-numeric (ftype 7): the last cell is the reserved sign position. Once
+    // the cursor parks there, data keys are inhibited (display.c:949-966,
+    // KBDSRC_SIGNPOS) — the operator must use Field± / Field Exit. Checked after
+    // the sign-key hack so typing "-"/"+" still signs the field (display.c order).
+    if (f.ftype === 7 && cursorAddr === (f.addr + f.len - 1) % (rows * cols)) {
+        oiaOperatorError("X Sign posit");
+        return;
+    }
+
     // Precise per-field-type input validation (field.c tn5250_field_valid_char).
     if (!validCharForField(f, ch)) {
         oiaOperatorError("X " + (f.ftype === 1 ? "Alpha only" : "Numeric only"));
@@ -983,6 +1010,9 @@ function prevFieldLastCell() {
 // non-bypass field. (Destructive erase is the separate Delete key.)
 function backspace() {
     if (kbdLocked) return;
+    // FER: non-destructive Backspace releases the inhibit WITHOUT moving
+    // (display.c:1336-1373 — K_BACKSPACE clears FER and returns).
+    if (ferActive) { clearFER(); return; }
     const size = rows * cols;
     const oldCursor = cursorAddr;
     const f = getFieldAtAddr(cursorAddr);
@@ -1005,6 +1035,9 @@ function backspace() {
 
 function deleteChar() {
     if (kbdLocked) return;
+    // FER: tn5250 denies Delete while the FER inhibit is set (display.c:1336-1373
+    // — K_DELETE is not in the FER-release list).
+    if (ferActive) return;
     if (isProtectedAddr(cursorAddr)) return;
     deleteCharShiftLeft();
 }
@@ -1038,32 +1071,33 @@ function clearFER() {
 
 // doReset performs the operator Error-Reset (K_RESET), mirroring tn5250
 // display.c do_key(K_RESET). web5250 splits the input-inhibit into two domains,
-// so Reset must clear BOTH:
+// and only the LOCAL one is browser-owned:
 //   • LOCAL (browser-owned): the operator-error "X II" family (kbdInhibit),
-//     the FER inhibit, Insert mode, and the pending keyboard lock — cleared
-//     here for instant feedback.
-//   • HOST (engine-owned): the Write-Error-Code "X II" (hostInhibit), whose
-//     state and the message line it overwrote live in the Go engine. The
-//     browser cannot restore that on its own, so it sends a "reset" to the
-//     engine, which uninhibits, restores the saved message line, and replies
-//     with a fresh frame. hostInhibit is also cleared locally so the X II
-//     disappears immediately; the engine's frame confirms it (and, in the rare
-//     host-locked case where the engine denies Reset, hostInhibit is already
-//     false, so the local clear is a harmless no-op).
+//     the FER inhibit, and Insert mode — cleared here for instant feedback.
+//   • HOST (engine-owned): the host X SYSTEM lock (kbdLocked) and the Write-
+//     Error-Code "X II" (hostInhibit). These are ENGINE-authoritative: the
+//     engine refuses to unlock while the host still holds the keyboard, so
+//     clearing them locally would desync. Reset sends a "reset" to the engine,
+//     which uninhibits, restores the saved message line, and ALWAYS replies
+//     with a fresh frame; that frame drives kbdLocked/hostInhibit through the
+//     normal screen/delta path.
 function doReset() {
-    kbdLocked = false;
-    insertMode = false;
-    kbdInhibit = false;
+    kbdInhibit = false;      // local operator error ("X Numeric only" etc.)
     operatorErrMsg = "";
-    hostInhibit = false;
+    insertMode = false;
     clearFER();
+    // Host X SYSTEM lock (kbdLocked) and host "X II" (hostInhibit) are engine-
+    // authoritative: the engine's Reset reply (a fresh frame) drives them. Do
+    // NOT clear them here or we desync when the host still holds the keyboard.
     if (ws && connected) ws.send(JSON.stringify({ type: "reset" }));
     updateStatusBar();
     renderScreen();
 }
 
 // deleteCharShiftLeft shifts all characters from cursor+1 to end of field
-// one position left, filling the last position with a blank.
+// one position left, filling the vacated last position with a NUL (empty
+// string). tn5250_dbuffer_del writes 0x00 into the freed cell (dbuffer.c:733);
+// our null cell "" renders blank (cellGlyph) but transmits as NUL.
 // Updates only the affected spans in the DOM.
 function deleteCharShiftLeft() {
     const f = getFieldAtAddr(cursorAddr);
@@ -1076,7 +1110,7 @@ function deleteCharShiftLeft() {
     while (true) {
         const next = (pos + 1) % size;
         if (next === fEnd) {
-            cells[pos].c = " ";
+            cells[pos].c = "";   // NUL fill (dbuffer.c:733), not a blank
             updateCellDOM(pos);
             break;
         }
@@ -1100,7 +1134,7 @@ function eraseEOF() {
 
     let pos = cursorAddr;
     while (pos !== fEnd) {
-        cells[pos].c = " ";
+        cells[pos].c = "";   // NUL fill (dbuffer.c:733), not a blank
         updateCellDOM(pos);
         pos = (pos + 1) % size;
     }
@@ -1176,30 +1210,55 @@ function fieldExit(sign) {
     }
 
     // Field Exit / Field± are among the keys that release a FER inhibit.
+    // Capture the FER state BEFORE clearing it (see the null-out note below).
+    const wasFER = ferActive;
     clearFER();
 
     const size = rows * cols;
     const fEnd = fieldEndAddr(f);
 
-    // Null out the remainder of the field from the cursor position (field
-    // _pad_and_adjust nulls trailing cells; our null cell is the empty string).
-    for (let pos = cursorAddr; pos !== fEnd; pos = (pos + 1) % size) {
-        cells[pos].c = "";
+    // Null out the remainder of the field from the cursor position. tn5250
+    // field_pad_and_adjust (display.c:1565-1600) nulls trailing cells ONLY when
+    // FER is clear: `if ((indicators & IND_FER) == 0) { ...null... }`. A full FER
+    // field therefore keeps all its data. Our null cell is the empty string ""
+    // (NUL) — NOT the DUP sentinel; Field Exit padding is 0x00, not 0x1C.
+    if (!wasFER) {
+        for (let pos = cursorAddr; pos !== fEnd; pos = (pos + 1) % size) {
+            cells[pos].c = "";
+        }
     }
 
     // Right-adjust the entered data if requested: adj 5 = right-justify with
     // leading zeros, adj 6/7 = right-justify with leading blanks.
-    if (f.adj === 5)                     shiftFieldRight(f, "0");
-    else if (f.adj === 6 || f.adj === 7) shiftFieldRight(f, " ");
+    // adj 5 = right-justify zero-fill, adj 6 = right-justify blank-fill. adj 7
+    // (mandatory-fill) is NOT right-adjusted — display.go fieldAdjust groups
+    // MANDATORY_FILL with NO_ADJUST (no shift). Signed-num always right-justifies.
+    if (f.adj === 5)      shiftFieldRight(f, "0");
+    else if (f.adj === 6) shiftFieldRight(f, " ");
     else if ((sign === "-" || sign === "+") && f.ftype === 7) shiftFieldRight(f, " ");
 
-    // Field+ / Field-: place the sign in the field's last (sign) position. The
-    // server derives the signed sign-digit from a trailing '-' (session_read.go),
-    // so we only set/clear the '-' here and let the server do the encoding.
+    // Sign placement differs by field type. Signed-num (ftype 7) has a SEPARATE
+    // trailing sign cell; numeric-only (ftype 3) carries the sign in the ZONE of
+    // the last digit as an EBCDIC overpunch (display.c:1737 zone-flips negative:
+    // `data[i] = (data[i] & 0x0F) | 0xd0`).
     if (sign === "-" || sign === "+") {
         const last = (f.addr + f.len - 1) % size;
-        if (sign === "-")               cells[last].c = "-";
-        else if (cells[last].c === "-") cells[last].c = "";
+        if (f.ftype === 7) {
+            // Signed-num: the last cell is the dedicated sign position. The server
+            // (session_read.go) derives the signed sign-digit from a trailing "-".
+            if (sign === "-")               cells[last].c = "-";
+            else if (cells[last].c === "-") cells[last].c = "";
+        } else if (f.ftype === 3 && sign === "-") {
+            // Numeric-only: overpunch the last digit zone negative. The EBCDIC
+            // overpunch chars "}JKLMNOPQR" (digit 0..9) DISPLAY like a real 5250
+            // negative overpunch, and the Go setFieldText translates them to EBCDIC
+            // 0xD0..0xD9 code-page-independently (negOverpunchDigit) for a correctly
+            // signed number — '}' (−0) is a variant byte, so it can't go through the
+            // code page. ftype 3 "+" needs no
+            // change — a positive number is just the plain digits.
+            const d = /[0-9]/.test(cells[last].c) ? +cells[last].c : 0;
+            cells[last].c = "}JKLMNOPQR"[d];
+        }
     }
 
     fieldMDT[f.addr] = true;
@@ -1326,7 +1385,16 @@ function checkMandatory() {
 
 function sendAID(aidName) {
     if (!ws || !connected) return;
-    if (kbdLocked && aidName !== "Clear") return;
+    // Keyboard-state gating follows the tn5250 keystate machine (display.c do_key).
+    if (kbdLocked) {
+        // X SYSTEM (LOCKED): only the operator escape keys pass (display.c:1301-1307).
+        if (aidName !== "SysReq" && aidName !== "Print" && aidName !== "Attn") return;
+    } else if (kbdInhibit || hostInhibit) {
+        // Operator error / host "X II" (PREHELP): only Help/Print/Attn pass
+        // (display.c:1308-1315). Reset (a local action) clears it; Enter/PF/Roll/
+        // Clear are denied.
+        if (aidName !== "Help" && aidName !== "Print" && aidName !== "Attn") return;
+    }
 
     // Mandatory-entry / mandatory-fill are enforced on Enter before transmitting.
     if (aidName === "Enter" && !checkMandatory()) return;
@@ -1508,7 +1576,7 @@ termEl.addEventListener("keydown", function(e) {
             eraseEOF();
             break;
         case "Home":
-            firstUnprotectedField();
+            homeCursor();  // move to the host IC target (homeRow/homeCol)
             break;
         case "FieldHome":
             fieldHome();
@@ -1552,6 +1620,9 @@ termEl.addEventListener("keydown", function(e) {
         return;
     case "ArrowLeft":
         e.preventDefault();
+        // FER: Left-arrow releases the inhibit WITHOUT moving the cursor
+        // (display.c:1336-1373 — K_LEFT clears FER and returns). Non-FER: move.
+        if (ferActive) { clearFER(); return; }
         clearFER();
         { const old = cursorAddr;
           cursorAddr = (cursorAddr - 1 + rows * cols) % (rows * cols);
@@ -1936,6 +2007,11 @@ function doConnect() {
                 cursorAddr = msg.cursor.row * cols + msg.cursor.col;
                 lastHostCursor = cursorAddr;
             }
+
+            // Host Insert-Cursor (Home) target for the Home key, 0-based (the Go
+            // screen/delta messages carry homeRow/homeCol).
+            hostHomeRow = msg.homeRow || 0;
+            hostHomeCol = msg.homeCol || 0;
 
             // Rebuild grid if dimensions changed
             const currentSpans = termEl.querySelectorAll("span").length;

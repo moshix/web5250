@@ -86,6 +86,8 @@ type wsScreenMessage struct {
 	Cols            int           `json:"cols"`
 	Cursor          wsCursorPos   `json:"cursor"`
 	CursorSet       bool          `json:"cursorSet"`
+	HomeRow         int           `json:"homeRow"` // tn5250 Home/IC target (no omitempty: 0,0 is valid)
+	HomeCol         int           `json:"homeCol"`
 	Alarm           bool          `json:"alarm,omitempty"`
 	KeyboardRestore bool          `json:"kbdRestore,omitempty"`
 	MessageWait     bool          `json:"mw,omitempty"`        // host has a message waiting
@@ -162,6 +164,8 @@ type wsDeltaMessage struct {
 	Cols            int           `json:"cols"`
 	Cursor          wsCursorPos   `json:"cursor"`
 	CursorSet       bool          `json:"cursorSet"`
+	HomeRow         int           `json:"homeRow"` // tn5250 Home/IC target (no omitempty: 0,0 is valid)
+	HomeCol         int           `json:"homeCol"`
 	Alarm           bool          `json:"alarm,omitempty"`
 	KeyboardRestore bool          `json:"kbdRestore,omitempty"`
 	MessageWait     bool          `json:"mw,omitempty"`
@@ -588,7 +592,8 @@ func (s *web5250Session) sendSnapshot(snap *tn5250.Snapshot) {
 		if len(delta) < size/2 {
 			data, err = json.Marshal(wsDeltaMessage{
 				Type: "delta", Rows: snap.Rows, Cols: snap.Cols,
-				Cursor: cursor, CursorSet: snap.CursorSet, Alarm: snap.Alarm,
+				Cursor: cursor, CursorSet: snap.CursorSet,
+				HomeRow: snap.HomeRow, HomeCol: snap.HomeCol, Alarm: snap.Alarm,
 				KeyboardRestore: kbdRestore, MessageWait: snap.MessageWait,
 				ErrorText: snap.ErrorText, XSystem: snap.XSystem, XClock: snap.XClock, Inhibit: snap.Inhibit, Delta: delta, Fields: fields,
 				Windows: windows, Selections: selections, Scrollbars: scrollbars,
@@ -598,7 +603,8 @@ func (s *web5250Session) sendSnapshot(snap *tn5250.Snapshot) {
 	if data == nil {
 		data, err = json.Marshal(wsScreenMessage{
 			Type: "screen", Rows: snap.Rows, Cols: snap.Cols,
-			Cursor: cursor, CursorSet: snap.CursorSet, Alarm: snap.Alarm,
+			Cursor: cursor, CursorSet: snap.CursorSet,
+			HomeRow: snap.HomeRow, HomeCol: snap.HomeCol, Alarm: snap.Alarm,
 			KeyboardRestore: kbdRestore, MessageWait: snap.MessageWait,
 			ErrorText: snap.ErrorText, XSystem: snap.XSystem, XClock: snap.XClock, Inhibit: snap.Inhibit, Cells: cells, Fields: fields,
 			Windows: windows, Selections: selections, Scrollbars: scrollbars,
