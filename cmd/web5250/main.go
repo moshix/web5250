@@ -32,7 +32,7 @@ var staticFiles embed.FS
 
 // web5250Version is set at build time via -ldflags "-X main.web5250Version=..."
 // Falls back to "dev" for ad-hoc builds.
-var web5250Version = "1.8"
+var web5250Version = "1.8.1"
 
 // model definitions: the -model flag and the frontend dropdown share these
 // values. 5250 terminal types map to a screen geometry.
@@ -52,7 +52,7 @@ var models = map[string]modelGeom{
 func main() {
 	fmt.Printf("web5250 version %s - copyright by moshix - all rights reserved\n", web5250Version)
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: web5250 [-listen :port] [-tls-listen :port] [-host hostname] [-port tn5250port] [-model 24x80|27x132] [-lock] [-host-tls] [-tls-cert file -tls-key file]\n")
+		fmt.Fprintf(os.Stderr, "Usage: web5250 [-listen :port] [-tls-listen :port] [-host hostname] [-port tn5250port] [-model 24x80|27x132] [-lock] [-host-tls] [-device name] [-kbdtype id] [-tls-cert file -tls-key file]\n")
 		fmt.Fprintf(os.Stderr, "Examples:\n")
 		fmt.Fprintf(os.Stderr, "  plain HTTP:   web5250 -listen :8050 -host as400.example.com -port 23\n")
 		fmt.Fprintf(os.Stderr, "  TLS only:     web5250 -listen :443 -tls-cert cert.pem -tls-key key.pem\n")
@@ -67,6 +67,8 @@ func main() {
 	hostTLS := flag.Bool("host-tls", false, "Connect to the AS/400 host over TLS (use with -port 992)")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file for the HTTPS listener (enables HTTPS)")
 	tlsKey := flag.String("tls-key", "", "TLS private key file (requires -tls-cert)")
+	device := flag.String("device", "", "TN5250E device name (NEW-ENVIRON DEVNAME); empty lets the host auto-assign")
+	kbdType := flag.String("kbdtype", "USB", "NEW-ENVIRON KBDTYPE keyboard identifier (e.g. USB, AGB for German)")
 	flag.Parse()
 
 	if flag.NArg() > 0 {
@@ -92,6 +94,7 @@ func main() {
 		setLock(*defaultHost, *defaultPort)
 	}
 	setHostTLS(*hostTLS)
+	setDeviceInfo(*device, *kbdType)
 
 	// Validate HTTPS listener TLS configuration
 	useTLS := *tlsCert != "" || *tlsKey != ""

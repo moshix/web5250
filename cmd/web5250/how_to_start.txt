@@ -32,6 +32,8 @@ Flags:
     -port        default TN5250 port (23 plain, 992 TLS)
     -model       screen size: 24x80 (default) or 27x132
     -host-tls    connect to the AS/400 over TLS (use with -port 992)
+    -device      TN5250E device name (NEW-ENVIRON DEVNAME); empty = auto-assign
+    -kbdtype     NEW-ENVIRON KBDTYPE (default USB; e.g. AGB for German)
     -lock        lock host/port so browser users cannot change the target
     -tls-cert / -tls-key   certificate + key for the HTTPS listener
 

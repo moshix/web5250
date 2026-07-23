@@ -22,6 +22,8 @@ That's it.
 | `-port` | `23` | Default TN5250 port (23 plain, 992 for TLS). |
 | `-host-tls` | `false` | Connect to the AS/400 host over TLS (use with `-port 992`). |
 | `-model` | `24x80` | Screen size: `24x80`  or `27x132`. |
+| `-device` | *(none)* | TN5250E device name (NEW-ENVIRON `DEVNAME`) to bind a specific virtual device. Empty lets the host auto-assign one. |
+| `-kbdtype` | `USB` | NEW-ENVIRON `KBDTYPE` keyboard identifier (e.g. `USB` US-English, `AGB` German). Set it to match your national code page. |
 | `-lock` | `false` | Lock the connection target to `-host`/`-port` — the browser fields are disabled and cannot be changed. |
 
 Run `web5250 -h` for a usage summary with examples.

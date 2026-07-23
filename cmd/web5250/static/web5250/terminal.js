@@ -1702,7 +1702,10 @@ termEl.addEventListener("copy", function(e) {
             text = text.replace(/ +$/, "") + "\n";
             lastRow = r;
         }
-        const ch = cells[i] ? (cells[i].c || " ") : " ";
+        // Mask non-display (password) fields on copy the same way the screen
+        // does: route through cellGlyph so cell.hid cells emit a blank instead
+        // of leaking the real typed characters to the clipboard.
+        const ch = cells[i] ? cellGlyph(cells[i]) : " ";
         text += ch;
     }
     text = text.replace(/ +$/, ""); // trim trailing spaces on last line

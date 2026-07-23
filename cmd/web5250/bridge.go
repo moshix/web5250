@@ -24,6 +24,8 @@ var (
 	lockedHost string
 	lockedPort string
 	hostUseTLS bool
+	deviceName string // NEW-ENVIRON DEVNAME (-device); empty => host auto-assigns
+	kbdType    string // NEW-ENVIRON KBDTYPE (-kbdtype); empty => "USB"
 
 	connectionCount int64
 	ipConns         = map[string]int{}
@@ -42,6 +44,13 @@ func setLock(host, port string) {
 func setHostTLS(v bool) {
 	stateMu.Lock()
 	hostUseTLS = v
+	stateMu.Unlock()
+}
+
+// setDeviceInfo sets the NEW-ENVIRON DEVNAME/KBDTYPE advertised at connect time.
+func setDeviceInfo(device, kbd string) {
+	stateMu.Lock()
+	deviceName, kbdType = device, kbd
 	stateMu.Unlock()
 }
 
@@ -351,6 +360,7 @@ func (s *web5250Session) handleConnect(msg wsClientMessage) {
 		host, port = lockedHost, lockedPort
 	}
 	useTLS := hostUseTLS
+	dev, kbd := deviceName, kbdType
 	stateMu.Unlock()
 
 	if host == "" {
@@ -374,6 +384,9 @@ func (s *web5250Session) handleConnect(msg wsClientMessage) {
 		}
 		client = tn5250.NewClient(model, cp)
 	}
+
+	client.SetDeviceName(dev)
+	client.SetKbdType(kbd)
 
 	client.SetUpdateCallback(func(snap *tn5250.Snapshot) {
 		s.sendSnapshot(snap)
@@ -481,11 +494,19 @@ func snapToCells(snap *tn5250.Snapshot) []wsCell {
 	cells := make([]wsCell, len(snap.Cells))
 	for i := range snap.Cells {
 		sc := &snap.Cells[i]
-		ch := " "
+		ch := ""
 		if sc.Char != 0 {
 			ch = string(sc.Char)
-		} else {
-			ch = "" // null cell — browser shows blank, tracks as null
+		}
+		// Non-display (password) field: never send the real character to the
+		// browser. Gold cursesterm.c:720-726 draws a nondisplay attribute as a
+		// blank, so the byte never reaches the display. We still send the Hidden
+		// flag; the browser types into hidden fields locally and transmits from
+		// its own buffer on Enter, so blanking this server→browser snapshot does
+		// not affect what gets transmitted. The delta builder in sendSnapshot
+		// reads from this same converted slice, so it inherits the blanking.
+		if sc.Hidden {
+			ch = " "
 		}
 		fg := sc.Fg
 		if fg == "" {
